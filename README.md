@@ -180,10 +180,36 @@ perfcheck https://example.com https://example.org --runs 2 --json
 
 (`results` entries truncated with `"..."` above for brevity — the real output includes one object per run.)
 
+### Warming up a session (`--warmup`)
+
+Some sites require state — a login cookie, a password-protected preview gate — before the page you actually want to measure is reachable. Pass `--warmup <url>` (repeatable) to visit one or more URLs first; their timing isn't measured, but any cookies they set persist into the real measurement(s) that follow. Warmup URLs run in the order given, once, before anything else — including every round of `--runs` and both sides of a comparison.
+
+```bash
+perfcheck https://httpbin.org/cookies --warmup "https://httpbin.org/cookies/set?session=abc123"
+```
+
+```
+Warmup 1/1: https://httpbin.org/cookies/set?session=abc123
+https://httpbin.org/cookies — 200 — TTFB: 108ms — Total: 109ms — FCP: 124ms — LCP: 124ms
+```
+
+Warmup lines are suppressed when `--json` is set, so stdout still carries exactly one JSON document.
+
+**Example: unlocking a password-protected Shopify preview theme.** Shopify's storefront password gate and theme preview selection both work via cookies, so visiting them in order before the real test gives you a session that can see the gated, previewed page:
+
+```bash
+perfcheck https://example.myshopify.com \
+  --warmup "https://example.myshopify.com/password?password=actual_password" \
+  --warmup "https://example.myshopify.com/?preview_theme_id=12kjh123hj2131&pb=0"
+```
+
+Cookies are tracked separately for the raw HTTP requests (TTFB/Total) and for the headless browser (FCP/LCP) — each gets its own warmup pass so both paths see the authenticated, previewed page.
+
 ## Flags
 
 - `--runs <n>` — repeat the measurement `n` times (or `n` interleaved rounds in comparison mode) and summarize with min/max/mean/median
 - `--json` — print a single machine-readable JSON document to stdout instead of text
+- `--warmup <url>` — visit a URL first to establish session cookies (repeatable, runs in order, not measured)
 
 ## Development
 

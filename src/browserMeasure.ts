@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { chromium, BrowserContext } from "playwright";
 
 export interface BrowserMetrics {
   fcpMs: number | null;
@@ -14,16 +14,13 @@ declare global {
   }
 }
 
-export async function measureBrowserMetrics(
+async function measureInPage(
+  context: BrowserContext,
   url: string,
-  options: { timeoutMs?: number } = {}
+  timeoutMs: number
 ): Promise<BrowserMetrics> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-
-  const browser = await chromium.launch();
+  const page = await context.newPage();
   try {
-    const page = await browser.newPage();
-
     await page.addInitScript(() => {
       window.__perfcheck = { fcp: null, lcp: null };
 
@@ -60,6 +57,32 @@ export async function measureBrowserMetrics(
     const result = await page.evaluate(() => window.__perfcheck);
     return { fcpMs: result?.fcp ?? null, lcpMs: result?.lcp ?? null };
   } finally {
+    await page.close();
+  }
+}
+
+export async function measureBrowserMetrics(
+  url: string,
+  options: { timeoutMs?: number } = {}
+): Promise<BrowserMetrics> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext();
+    return await measureInPage(context, url, timeoutMs);
+  } finally {
     await browser.close();
   }
+}
+
+/** Like measureBrowserMetrics, but reuses a caller-managed context so cookies
+ * (e.g. from a warmup navigation) persist across calls. */
+export async function measureInContext(
+  context: BrowserContext,
+  url: string,
+  options: { timeoutMs?: number } = {}
+): Promise<BrowserMetrics> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  return measureInPage(context, url, timeoutMs);
 }

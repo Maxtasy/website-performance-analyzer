@@ -1,11 +1,13 @@
 #!/usr/bin/env node
+import { chromium, BrowserContext } from "playwright";
 import { measure } from "./measure";
-import { measureBrowserMetrics } from "./browserMeasure";
+import { measureBrowserMetrics, measureInContext } from "./browserMeasure";
 import { parseArgs } from "./args";
 import { computeStats, Stats } from "./stats";
+import { CookieJar } from "./cookieJar";
 
 function printUsage(): void {
-  console.error("Usage: perfcheck <url> [<compareUrl>] [--runs <n>] [--json]");
+  console.error("Usage: perfcheck <url> [<compareUrl>] [--runs <n>] [--json] [--warmup <url>]...");
 }
 
 function formatMs(value: number | null): string {
@@ -45,10 +47,15 @@ interface ComparisonEntry {
   deltaPct: number | null;
 }
 
-async function runOnce(url: string): Promise<RunResult> {
+interface Session {
+  cookieJar: CookieJar;
+  context: BrowserContext;
+}
+
+async function runOnce(url: string, session?: Session): Promise<RunResult> {
   const [httpResult, browserResult] = await Promise.all([
-    measure(url),
-    measureBrowserMetrics(url),
+    measure(url, session ? { cookieJar: session.cookieJar } : {}),
+    session ? measureInContext(session.context, url) : measureBrowserMetrics(url),
   ]);
   return {
     url: httpResult.url,
@@ -58,6 +65,27 @@ async function runOnce(url: string): Promise<RunResult> {
     fcpMs: browserResult.fcpMs !== null ? Math.round(browserResult.fcpMs) : null,
     lcpMs: browserResult.lcpMs !== null ? Math.round(browserResult.lcpMs) : null,
   };
+}
+
+async function runWarmup(warmupUrls: string[], session: Session, json: boolean): Promise<void> {
+  for (let i = 0; i < warmupUrls.length; i++) {
+    const warmupUrl = warmupUrls[i];
+    if (!json) {
+      console.log(`Warmup ${i + 1}/${warmupUrls.length}: ${warmupUrl}`);
+    }
+    try {
+      await measure(warmupUrl, { cookieJar: session.cookieJar });
+      const page = await session.context.newPage();
+      try {
+        await page.goto(warmupUrl, { waitUntil: "load" });
+      } finally {
+        await page.close();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Warmup request to ${warmupUrl} failed: ${message}`);
+    }
+  }
 }
 
 function computeMetricStats(results: RunResult[]): MetricStats {
@@ -98,11 +126,16 @@ function printSummary(title: string, stats: MetricStats): void {
   console.log(formatStatsLine("LCP", stats.lcp));
 }
 
-async function runSingle(url: string, runs: number, json: boolean): Promise<void> {
+async function runSingle(
+  url: string,
+  runs: number,
+  json: boolean,
+  session?: Session
+): Promise<void> {
   const results: RunResult[] = [];
 
   for (let i = 1; i <= runs; i++) {
-    const result = await runOnce(url);
+    const result = await runOnce(url, session);
     results.push(result);
 
     if (!json) {
@@ -133,13 +166,14 @@ async function runComparison(
   urlA: string,
   urlB: string,
   runs: number,
-  json: boolean
+  json: boolean,
+  session?: Session
 ): Promise<void> {
   const resultsA: RunResult[] = [];
   const resultsB: RunResult[] = [];
 
   for (let i = 1; i <= runs; i++) {
-    const a = await runOnce(urlA);
+    const a = await runOnce(urlA, session);
     resultsA.push(a);
     if (!json) {
       console.log(
@@ -149,7 +183,7 @@ async function runComparison(
       );
     }
 
-    const b = await runOnce(urlB);
+    const b = await runOnce(urlB, session);
     resultsB.push(b);
     if (!json) {
       console.log(
@@ -201,8 +235,9 @@ async function main(): Promise<void> {
   let urls: string[];
   let runs: number;
   let json: boolean;
+  let warmupUrls: string[];
   try {
-    ({ urls, runs, json } = parseArgs(process.argv.slice(2)));
+    ({ urls, runs, json, warmupUrls } = parseArgs(process.argv.slice(2)));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`perfcheck: ${message}`);
@@ -211,16 +246,31 @@ async function main(): Promise<void> {
     return;
   }
 
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+
   try {
+    let session: Session | undefined;
+
+    if (warmupUrls.length > 0) {
+      browser = await chromium.launch();
+      const context = await browser.newContext();
+      session = { cookieJar: new CookieJar(), context };
+      await runWarmup(warmupUrls, session, json);
+    }
+
     if (urls.length === 1) {
-      await runSingle(urls[0], runs, json);
+      await runSingle(urls[0], runs, json, session);
     } else {
-      await runComparison(urls[0], urls[1], runs, json);
+      await runComparison(urls[0], urls[1], runs, json, session);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`perfcheck: ${message}`);
     process.exitCode = 1;
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 }
 

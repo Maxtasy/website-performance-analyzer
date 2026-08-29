@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import * as https from "node:https";
 import { performance } from "node:perf_hooks";
+import { CookieJar } from "./cookieJar";
 
 export interface MeasureResult {
   url: string;
@@ -13,7 +14,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 export function measure(
   rawUrl: string,
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; cookieJar?: CookieJar } = {}
 ): Promise<MeasureResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -31,25 +32,32 @@ export function measure(
   }
 
   const client = url.protocol === "https:" ? https : http;
+  const cookieHeader = options.cookieJar?.getCookieHeader();
 
   return new Promise((resolve, reject) => {
     const start = performance.now();
 
-    const req = client.get(url, (res) => {
-      const ttfbMs = performance.now() - start;
-      const statusCode = res.statusCode ?? 0;
+    const req = client.get(
+      url,
+      { headers: cookieHeader ? { Cookie: cookieHeader } : {} },
+      (res) => {
+        const ttfbMs = performance.now() - start;
+        const statusCode = res.statusCode ?? 0;
 
-      res.on("data", () => {
-        // Drain the response body; we only need timing, not content.
-      });
+        options.cookieJar?.applySetCookie(res.headers["set-cookie"]);
 
-      res.on("end", () => {
-        const totalMs = performance.now() - start;
-        resolve({ url: url.toString(), statusCode, ttfbMs, totalMs });
-      });
+        res.on("data", () => {
+          // Drain the response body; we only need timing, not content.
+        });
 
-      res.on("error", (err) => reject(err));
-    });
+        res.on("end", () => {
+          const totalMs = performance.now() - start;
+          resolve({ url: url.toString(), statusCode, ttfbMs, totalMs });
+        });
+
+        res.on("error", (err) => reject(err));
+      }
+    );
 
     req.setTimeout(timeoutMs, () => {
       req.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
