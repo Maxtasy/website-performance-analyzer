@@ -1,11 +1,11 @@
 export interface ParsedArgs {
-  url: string;
+  urls: string[];
   runs: number;
   json: boolean;
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
-  let url: string | undefined;
+  const urls: string[] = [];
   let runs = 1;
   let json = false;
 
@@ -22,16 +22,19 @@ export function parseArgs(argv: string[]): ParsedArgs {
       i++;
     } else if (arg === "--json") {
       json = true;
-    } else if (!arg.startsWith("--") && url === undefined) {
-      url = arg;
+    } else if (!arg.startsWith("--")) {
+      urls.push(arg);
     } else {
       throw new Error(`Unrecognized argument: ${arg}`);
     }
   }
 
-  if (!url) {
+  if (urls.length === 0) {
     throw new Error("Missing required <url> argument");
   }
+  if (urls.length > 2) {
+    throw new Error(`perfcheck accepts at most 2 URLs to compare (got ${urls.length})`);
+  }
 
-  return { url, runs, json };
+  return { urls, runs, json };
 }

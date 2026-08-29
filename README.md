@@ -22,7 +22,7 @@ The `playwright install` step downloads the Chromium browser binary (~190MB) int
 ## Usage
 
 ```bash
-node dist/cli.js <url>
+node dist/cli.js <url> [<compareUrl>]
 ```
 
 Or, to use the `perfcheck` command directly:
@@ -54,6 +54,16 @@ perfcheck https://example.com --runs 3
 perfcheck https://example.com --json
 perfcheck https://example.com --runs 3 --json
 ```
+
+### Comparing two URLs
+
+Pass a second URL to compare it against the first. Runs interleave A/B/A/B/... rather than running all of A then all of B, so both sides see similar conditions (network drift, time of day) rather than one side being systematically favored:
+
+```bash
+perfcheck https://example.com https://example.org --runs 5
+```
+
+This prints each interleaved run (`[A 1/5]`, `[B 1/5]`, ...), a summary per URL, and a comparison block (median deltas, ms and %). Add `--json` for a structured `{ urls, runs, results: { a, b }, summary: { a, b }, comparison }` document instead.
 
 ## Development
 
