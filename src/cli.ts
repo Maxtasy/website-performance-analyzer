@@ -5,7 +5,7 @@ import { parseArgs } from "./args";
 import { computeStats, Stats } from "./stats";
 
 function printUsage(): void {
-  console.error("Usage: perfcheck <url> [--runs <n>]");
+  console.error("Usage: perfcheck <url> [--runs <n>] [--json]");
 }
 
 function formatMs(value: number | null): string {
@@ -22,11 +22,20 @@ function formatStatsLine(label: string, stats: Stats | null): string {
   );
 }
 
+interface RunResult {
+  statusCode: number;
+  ttfbMs: number;
+  totalMs: number;
+  fcpMs: number | null;
+  lcpMs: number | null;
+}
+
 async function main(): Promise<void> {
   let url: string;
   let runs: number;
+  let json: boolean;
   try {
-    ({ url, runs } = parseArgs(process.argv.slice(2)));
+    ({ url, runs, json } = parseArgs(process.argv.slice(2)));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`perfcheck: ${message}`);
@@ -36,10 +45,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    const ttfbs: number[] = [];
-    const totals: number[] = [];
-    const fcps: number[] = [];
-    const lcps: number[] = [];
+    const results: RunResult[] = [];
 
     for (let i = 1; i <= runs; i++) {
       const [httpResult, browserResult] = await Promise.all([
@@ -47,26 +53,73 @@ async function main(): Promise<void> {
         measureBrowserMetrics(url),
       ]);
 
-      ttfbs.push(httpResult.ttfbMs);
-      totals.push(httpResult.totalMs);
-      if (browserResult.fcpMs !== null) fcps.push(browserResult.fcpMs);
-      if (browserResult.lcpMs !== null) lcps.push(browserResult.lcpMs);
+      const runResult: RunResult = {
+        statusCode: httpResult.statusCode,
+        ttfbMs: Math.round(httpResult.ttfbMs),
+        totalMs: Math.round(httpResult.totalMs),
+        fcpMs: browserResult.fcpMs !== null ? Math.round(browserResult.fcpMs) : null,
+        lcpMs: browserResult.lcpMs !== null ? Math.round(browserResult.lcpMs) : null,
+      };
+      results.push(runResult);
 
-      const prefix = runs > 1 ? `[${i}/${runs}] ` : "";
-      console.log(
-        `${prefix}${httpResult.url} — ${httpResult.statusCode} — ` +
-          `TTFB: ${formatMs(httpResult.ttfbMs)} — Total: ${formatMs(httpResult.totalMs)} — ` +
-          `FCP: ${formatMs(browserResult.fcpMs)} — LCP: ${formatMs(browserResult.lcpMs)}`
-      );
+      if (!json) {
+        const prefix = runs > 1 ? `[${i}/${runs}] ` : "";
+        console.log(
+          `${prefix}${httpResult.url} — ${runResult.statusCode} — ` +
+            `TTFB: ${formatMs(runResult.ttfbMs)} — Total: ${formatMs(runResult.totalMs)} — ` +
+            `FCP: ${formatMs(runResult.fcpMs)} — LCP: ${formatMs(runResult.lcpMs)}`
+        );
+      }
     }
 
-    if (runs > 1) {
+    const ttfbStats = computeStats(results.map((r) => r.ttfbMs));
+    const totalStats = computeStats(results.map((r) => r.totalMs));
+    const fcpStats = computeStats(results.flatMap((r) => (r.fcpMs !== null ? [r.fcpMs] : [])));
+    const lcpStats = computeStats(results.flatMap((r) => (r.lcpMs !== null ? [r.lcpMs] : [])));
+
+    if (json) {
+      if (runs === 1) {
+        const [result] = results;
+        console.log(
+          JSON.stringify(
+            {
+              url,
+              statusCode: result.statusCode,
+              ttfbMs: result.ttfbMs,
+              totalMs: result.totalMs,
+              fcpMs: result.fcpMs,
+              lcpMs: result.lcpMs,
+            },
+            null,
+            2
+          )
+        );
+      } else {
+        console.log(
+          JSON.stringify(
+            {
+              url,
+              runs,
+              results,
+              summary: {
+                ttfb: ttfbStats,
+                total: totalStats,
+                fcp: fcpStats,
+                lcp: lcpStats,
+              },
+            },
+            null,
+            2
+          )
+        );
+      }
+    } else if (runs > 1) {
       console.log("");
       console.log(`Summary over ${runs} runs:`);
-      console.log(formatStatsLine("TTFB", computeStats(ttfbs)));
-      console.log(formatStatsLine("Total", computeStats(totals)));
-      console.log(formatStatsLine("FCP", computeStats(fcps)));
-      console.log(formatStatsLine("LCP", computeStats(lcps)));
+      console.log(formatStatsLine("TTFB", ttfbStats));
+      console.log(formatStatsLine("Total", totalStats));
+      console.log(formatStatsLine("FCP", fcpStats));
+      console.log(formatStatsLine("LCP", lcpStats));
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

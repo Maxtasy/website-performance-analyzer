@@ -44,6 +44,17 @@ https://example.com/ — 200 — TTFB: 134ms — Total: 260ms — FCP: 260ms —
 
 On failure (invalid URL, unreachable host, timeout), perfcheck prints an error to stderr and exits with a non-zero status code.
 
+### Flags
+
+- `--runs <n>` — run the measurement `n` times and print a min/max/mean/median summary alongside each run's result
+- `--json` — print machine-readable JSON instead of the text format (suppresses per-run text lines; a single JSON document is written to stdout)
+
+```bash
+perfcheck https://example.com --runs 3
+perfcheck https://example.com --json
+perfcheck https://example.com --runs 3 --json
+```
+
 ## Development
 
 After editing any file in `src/`, rebuild before running:

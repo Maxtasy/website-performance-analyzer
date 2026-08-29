@@ -1,11 +1,13 @@
 export interface ParsedArgs {
   url: string;
   runs: number;
+  json: boolean;
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
   let url: string | undefined;
   let runs = 1;
+  let json = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -18,6 +20,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
       runs = parsed;
       i++;
+    } else if (arg === "--json") {
+      json = true;
     } else if (!arg.startsWith("--") && url === undefined) {
       url = arg;
     } else {
@@ -29,5 +33,5 @@ export function parseArgs(argv: string[]): ParsedArgs {
     throw new Error("Missing required <url> argument");
   }
 
-  return { url, runs };
+  return { url, runs, json };
 }
