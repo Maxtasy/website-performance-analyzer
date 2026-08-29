@@ -1,6 +1,6 @@
 # perfcheck
 
-A CLI tool that measures basic web performance metrics for a given URL.
+A CLI tool that measures basic web performance metrics for a given URL, with support for repeated runs and A/B comparison between two URLs.
 
 ## Metrics
 
@@ -22,48 +22,168 @@ The `playwright install` step downloads the Chromium browser binary (~190MB) int
 ## Usage
 
 ```bash
-node dist/cli.js <url> [<compareUrl>]
+node dist/cli.js <url> [<compareUrl>] [--runs <n>] [--json]
 ```
 
 Or, to use the `perfcheck` command directly:
 
 ```bash
 npm link
-perfcheck <url>
+perfcheck <url> [<compareUrl>] [--runs <n>] [--json]
 ```
 
-### Example
+On failure (invalid URL, unreachable host, timeout), perfcheck prints an error to stderr and exits with a non-zero status code.
+
+### Single URL
 
 ```bash
 perfcheck https://example.com
 ```
 
 ```
-https://example.com/ — 200 — TTFB: 134ms — Total: 260ms — FCP: 260ms — LCP: 260ms
+https://example.com/ — 200 — TTFB: 127ms — Total: 127ms — FCP: 100ms — LCP: 100ms
 ```
 
-On failure (invalid URL, unreachable host, timeout), perfcheck prints an error to stderr and exits with a non-zero status code.
+### Repeated runs (`--runs`)
 
-### Flags
-
-- `--runs <n>` — run the measurement `n` times and print a min/max/mean/median summary alongside each run's result
-- `--json` — print machine-readable JSON instead of the text format (suppresses per-run text lines; a single JSON document is written to stdout)
+Runs the measurement `n` times and prints a min/max/mean/median summary:
 
 ```bash
 perfcheck https://example.com --runs 3
+```
+
+```
+[1/3] https://example.com/ — 200 — TTFB: 113ms — Total: 114ms — FCP: 104ms — LCP: 104ms
+[2/3] https://example.com/ — 200 — TTFB: 32ms — Total: 32ms — FCP: 104ms — LCP: 104ms
+[3/3] https://example.com/ — 200 — TTFB: 30ms — Total: 30ms — FCP: 92ms — LCP: 92ms
+
+Summary over 3 runs:
+  TTFB   — min: 30ms  max: 113ms  mean: 58ms  median: 32ms
+  Total  — min: 30ms  max: 114ms  mean: 59ms  median: 32ms
+  FCP    — min: 92ms  max: 104ms  mean: 100ms  median: 104ms
+  LCP    — min: 92ms  max: 104ms  mean: 100ms  median: 104ms
+```
+
+### JSON output (`--json`)
+
+Prints a single machine-readable JSON document to stdout instead of text (safe to pipe into `jq` or another script — no other text is written to stdout in this mode):
+
+```bash
 perfcheck https://example.com --json
-perfcheck https://example.com --runs 3 --json
+```
+
+```json
+{
+  "url": "https://example.com/",
+  "statusCode": 200,
+  "ttfbMs": 102,
+  "totalMs": 102,
+  "fcpMs": 96,
+  "lcpMs": 96
+}
+```
+
+`--runs` and `--json` combine — with more than one run, the JSON document includes the full `results` array plus a `summary`:
+
+```bash
+perfcheck https://example.com --runs 2 --json
+```
+
+```json
+{
+  "url": "https://example.com",
+  "runs": 2,
+  "results": [
+    { "url": "https://example.com/", "statusCode": 200, "ttfbMs": 120, "totalMs": 121, "fcpMs": 104, "lcpMs": 104 },
+    { "url": "https://example.com/", "statusCode": 200, "ttfbMs": 27, "totalMs": 28, "fcpMs": 100, "lcpMs": 100 }
+  ],
+  "summary": {
+    "ttfb": { "min": 27, "max": 120, "mean": 73.5, "median": 73.5 },
+    "total": { "min": 28, "max": 121, "mean": 74.5, "median": 74.5 },
+    "fcp": { "min": 100, "max": 104, "mean": 102, "median": 102 },
+    "lcp": { "min": 100, "max": 104, "mean": 102, "median": 102 }
+  }
+}
 ```
 
 ### Comparing two URLs
 
-Pass a second URL to compare it against the first. Runs interleave A/B/A/B/... rather than running all of A then all of B, so both sides see similar conditions (network drift, time of day) rather than one side being systematically favored:
+Pass a second URL to compare it against the first. Runs interleave A/B/A/B/... rather than running all of A then all of B, so both sides see similar conditions (network drift, time of day) instead of one side being systematically favored:
 
 ```bash
-perfcheck https://example.com https://example.org --runs 5
+perfcheck https://example.com https://example.org --runs 3
 ```
 
-This prints each interleaved run (`[A 1/5]`, `[B 1/5]`, ...), a summary per URL, and a comparison block (median deltas, ms and %). Add `--json` for a structured `{ urls, runs, results: { a, b }, summary: { a, b }, comparison }` document instead.
+```
+[A 1/3] https://example.com/ — 200 — TTFB: 119ms — Total: 120ms — FCP: 104ms — LCP: 104ms
+[B 1/3] https://example.org/ — 200 — TTFB: 116ms — Total: 116ms — FCP: 96ms — LCP: 96ms
+[A 2/3] https://example.com/ — 200 — TTFB: 28ms — Total: 28ms — FCP: 104ms — LCP: 104ms
+[B 2/3] https://example.org/ — 200 — TTFB: 29ms — Total: 29ms — FCP: 128ms — LCP: 128ms
+[A 3/3] https://example.com/ — 200 — TTFB: 36ms — Total: 36ms — FCP: 108ms — LCP: 108ms
+[B 3/3] https://example.org/ — 200 — TTFB: 25ms — Total: 25ms — FCP: 104ms — LCP: 104ms
+
+Summary over 3 runs — A: https://example.com
+  TTFB   — min: 28ms  max: 119ms  mean: 61ms  median: 36ms
+  Total  — min: 28ms  max: 120ms  mean: 61ms  median: 36ms
+  FCP    — min: 104ms  max: 108ms  mean: 105ms  median: 104ms
+  LCP    — min: 104ms  max: 108ms  mean: 105ms  median: 104ms
+
+Summary over 3 runs — B: https://example.org
+  TTFB   — min: 25ms  max: 116ms  mean: 57ms  median: 29ms
+  Total  — min: 25ms  max: 116ms  mean: 57ms  median: 29ms
+  FCP    — min: 96ms  max: 128ms  mean: 109ms  median: 104ms
+  LCP    — min: 96ms  max: 128ms  mean: 109ms  median: 104ms
+
+Comparison (B vs A, median):
+  TTFB   — A: 36ms  B: 29ms  Δ -7ms (-19.4%)
+  Total  — A: 36ms  B: 29ms  Δ -7ms (-19.4%)
+  FCP    — A: 104ms  B: 104ms  Δ +0ms (+0.0%)
+  LCP    — A: 104ms  B: 104ms  Δ +0ms (+0.0%)
+```
+
+Add `--json` for a structured document with per-run results, per-URL summaries, and the comparison deltas:
+
+```bash
+perfcheck https://example.com https://example.org --runs 2 --json
+```
+
+```json
+{
+  "urls": ["https://example.com", "https://example.org"],
+  "runs": 2,
+  "results": {
+    "a": [ { "url": "https://example.com/", "statusCode": 200, "ttfbMs": 109, "totalMs": 110, "fcpMs": 112, "lcpMs": 112 }, "..." ],
+    "b": [ { "url": "https://example.org/", "statusCode": 200, "ttfbMs": 67, "totalMs": 67, "fcpMs": 104, "lcpMs": 104 }, "..." ]
+  },
+  "summary": {
+    "a": {
+      "ttfb": { "min": 22, "max": 109, "mean": 65.5, "median": 65.5 },
+      "total": { "min": 22, "max": 110, "mean": 66, "median": 66 },
+      "fcp": { "min": 104, "max": 112, "mean": 108, "median": 108 },
+      "lcp": { "min": 104, "max": 112, "mean": 108, "median": 108 }
+    },
+    "b": {
+      "ttfb": { "min": 24, "max": 67, "mean": 45.5, "median": 45.5 },
+      "total": { "min": 24, "max": 67, "mean": 45.5, "median": 45.5 },
+      "fcp": { "min": 104, "max": 124, "mean": 114, "median": 114 },
+      "lcp": { "min": 104, "max": 124, "mean": 114, "median": 114 }
+    }
+  },
+  "comparison": {
+    "ttfb": { "aMedian": 65.5, "bMedian": 45.5, "deltaMs": -20, "deltaPct": -30.53 },
+    "total": { "aMedian": 66, "bMedian": 45.5, "deltaMs": -20.5, "deltaPct": -31.06 },
+    "fcp": { "aMedian": 108, "bMedian": 114, "deltaMs": 6, "deltaPct": 5.56 },
+    "lcp": { "aMedian": 108, "bMedian": 114, "deltaMs": 6, "deltaPct": 5.56 }
+  }
+}
+```
+
+(`results` entries truncated with `"..."` above for brevity — the real output includes one object per run.)
+
+## Flags
+
+- `--runs <n>` — repeat the measurement `n` times (or `n` interleaved rounds in comparison mode) and summarize with min/max/mean/median
+- `--json` — print a single machine-readable JSON document to stdout instead of text
 
 ## Development
 
