@@ -3,11 +3,13 @@ export interface ParsedArgs {
   runs: number;
   json: boolean;
   warmupUrls: string[];
+  warmupUrlsB: string[];
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const urls: string[] = [];
   const warmupUrls: string[] = [];
+  const warmupUrlsB: string[] = [];
   let runs = 1;
   let json = false;
 
@@ -31,6 +33,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
       warmupUrls.push(value);
       i++;
+    } else if (arg === "--warmup-b") {
+      const value = argv[i + 1];
+      if (!value) {
+        throw new Error("--warmup-b requires a URL argument");
+      }
+      warmupUrlsB.push(value);
+      i++;
     } else if (!arg.startsWith("--")) {
       urls.push(arg);
     } else {
@@ -44,6 +53,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
   if (urls.length > 2) {
     throw new Error(`perfcheck accepts at most 2 URLs to compare (got ${urls.length})`);
   }
+  if (warmupUrlsB.length > 0 && urls.length !== 2) {
+    throw new Error("--warmup-b requires two URLs to compare (only 1 given)");
+  }
 
-  return { urls, runs, json, warmupUrls };
+  return { urls, runs, json, warmupUrls, warmupUrlsB };
 }

@@ -37,7 +37,10 @@ export interface ComparisonStats {
 export interface CheckOptions {
   urls: string[];
   runs: number;
+  /** Warmup URLs for urls[0] (the single URL, or side A in comparison mode). */
   warmupUrls: string[];
+  /** Warmup URLs for urls[1] (side B). Only meaningful in comparison mode. */
+  warmupUrlsB?: string[];
 }
 
 export interface SingleCheckResult {
@@ -60,7 +63,7 @@ export interface ComparisonCheckResult {
 export type CheckResult = SingleCheckResult | ComparisonCheckResult;
 
 export type ProgressEvent =
-  | { type: "warmup"; index: number; total: number; url: string }
+  | { type: "warmup"; label: "single" | "A" | "B"; index: number; total: number; url: string }
   | { type: "run"; label: "single" | "A" | "B"; index: number; total: number; result: RunResult };
 
 interface Session {
@@ -86,11 +89,12 @@ async function runOnce(url: string, session?: Session): Promise<RunResult> {
 async function runWarmup(
   warmupUrls: string[],
   session: Session,
+  label: "single" | "A" | "B",
   onProgress?: (event: ProgressEvent) => void
 ): Promise<void> {
   for (let i = 0; i < warmupUrls.length; i++) {
     const warmupUrl = warmupUrls[i];
-    onProgress?.({ type: "warmup", index: i + 1, total: warmupUrls.length, url: warmupUrl });
+    onProgress?.({ type: "warmup", label, index: i + 1, total: warmupUrls.length, url: warmupUrl });
     try {
       await measure(warmupUrl, { cookieJar: session.cookieJar });
       const page = await session.context.newPage();
@@ -104,6 +108,22 @@ async function runWarmup(
       throw new Error(`Warmup request to ${warmupUrl} failed: ${message}`);
     }
   }
+}
+
+async function buildSession(
+  browserPromise: () => Promise<Awaited<ReturnType<typeof chromium.launch>>>,
+  warmupUrls: string[],
+  label: "single" | "A" | "B",
+  onProgress?: (event: ProgressEvent) => void
+): Promise<Session | undefined> {
+  if (warmupUrls.length === 0) {
+    return undefined;
+  }
+  const browser = await browserPromise();
+  const context = await browser.newContext();
+  const session: Session = { cookieJar: new CookieJar(), context };
+  await runWarmup(warmupUrls, session, label, onProgress);
+  return session;
 }
 
 function computeMetricStats(results: RunResult[]): MetricStats {
@@ -134,6 +154,9 @@ export function validateCheckOptions(options: CheckOptions): void {
   if (!Number.isInteger(options.runs) || options.runs < 1) {
     throw new Error(`runs must be a positive integer (got ${options.runs})`);
   }
+  if ((options.warmupUrlsB?.length ?? 0) > 0 && options.urls.length !== 2) {
+    throw new Error("warmupUrlsB (--warmup-b) requires two URLs to compare");
+  }
 }
 
 export async function runCheck(
@@ -141,22 +164,20 @@ export async function runCheck(
   onProgress?: (event: ProgressEvent) => void
 ): Promise<CheckResult> {
   validateCheckOptions(options);
-  const { urls, runs, warmupUrls } = options;
+  const { urls, runs, warmupUrls, warmupUrlsB = [] } = options;
 
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  const getBrowser = async () => {
+    if (!browser) {
+      browser = await chromium.launch();
+    }
+    return browser;
+  };
 
   try {
-    let session: Session | undefined;
-
-    if (warmupUrls.length > 0) {
-      browser = await chromium.launch();
-      const context = await browser.newContext();
-      session = { cookieJar: new CookieJar(), context };
-      await runWarmup(warmupUrls, session, onProgress);
-    }
-
     if (urls.length === 1) {
       const url = urls[0];
+      const session = await buildSession(getBrowser, warmupUrls, "single", onProgress);
       const results: RunResult[] = [];
 
       for (let i = 1; i <= runs; i++) {
@@ -169,15 +190,18 @@ export async function runCheck(
     }
 
     const [urlA, urlB] = urls;
+    const sessionA = await buildSession(getBrowser, warmupUrls, "A", onProgress);
+    const sessionB = await buildSession(getBrowser, warmupUrlsB, "B", onProgress);
+
     const resultsA: RunResult[] = [];
     const resultsB: RunResult[] = [];
 
     for (let i = 1; i <= runs; i++) {
-      const a = await runOnce(urlA, session);
+      const a = await runOnce(urlA, sessionA);
       resultsA.push(a);
       onProgress?.({ type: "run", label: "A", index: i, total: runs, result: a });
 
-      const b = await runOnce(urlB, session);
+      const b = await runOnce(urlB, sessionB);
       resultsB.push(b);
       onProgress?.({ type: "run", label: "B", index: i, total: runs, result: b });
     }

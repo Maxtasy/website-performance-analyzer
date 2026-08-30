@@ -205,15 +205,28 @@ perfcheck https://example.myshopify.com \
 
 Cookies are tracked separately for the raw HTTP requests (TTFB/Total) and for the headless browser (FCP/LCP) — each gets its own warmup pass so both paths see the authenticated, previewed page.
 
+**Comparison mode: independent warmup per side.** `--warmup` only warms up the first URL (A). If you're comparing two different preview themes (or two different password-protected stores), B needs its own cookies — use `--warmup-b`, repeatable the same way. A and B each get their own cookie jar and browser session, so nothing leaks between them:
+
+```bash
+perfcheck https://example.myshopify.com https://example.myshopify.com \
+  --warmup "https://example.myshopify.com/password?password=actual_password" \
+  --warmup "https://example.myshopify.com/?preview_theme_id=THEME_A&pb=0" \
+  --warmup-b "https://example.myshopify.com/password?password=actual_password" \
+  --warmup-b "https://example.myshopify.com/?preview_theme_id=THEME_B&pb=0"
+```
+
+`--warmup-b` requires two URLs (it errors if used with only one). If only one side needs warmup, just omit the other flag — that side runs stateless as usual.
+
 ## Flags
 
 - `--runs <n>` — repeat the measurement `n` times (or `n` interleaved rounds in comparison mode) and summarize with min/max/mean/median
 - `--json` — print a single machine-readable JSON document to stdout instead of text
-- `--warmup <url>` — visit a URL first to establish session cookies (repeatable, runs in order, not measured)
+- `--warmup <url>` — visit a URL first to establish session cookies for the single URL (or side A in comparison mode); repeatable, runs in order, not measured
+- `--warmup-b <url>` — same, but for side B in comparison mode (requires two URLs; independent session from `--warmup`)
 
 ## Web UI
 
-`perfcheck serve` starts a local server with a browser-based form for the same functionality — URL, compare URL, warmup URLs (one per line), and run count — instead of the command line:
+`perfcheck serve` starts a local server with a browser-based form for the same functionality — URL, compare URL, independent warmup URLs for A and B (one per line each), and run count — instead of the command line:
 
 ```bash
 perfcheck serve

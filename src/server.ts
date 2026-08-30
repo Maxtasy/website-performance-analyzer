@@ -21,7 +21,7 @@ function parseCheckRequest(body: unknown): CheckOptions {
   if (typeof body !== "object" || body === null) {
     throw new Error("Request body must be a JSON object");
   }
-  const { url, compareUrl, runs, warmupUrls } = body as Record<string, unknown>;
+  const { url, compareUrl, runs, warmupUrls, warmupUrlsB } = body as Record<string, unknown>;
 
   if (typeof url !== "string" || url.trim() === "") {
     throw new Error("`url` is required");
@@ -35,18 +35,23 @@ function parseCheckRequest(body: unknown): CheckOptions {
   if (warmupUrls !== undefined && !Array.isArray(warmupUrls)) {
     throw new Error("`warmupUrls` must be an array of strings");
   }
+  if (warmupUrlsB !== undefined && !Array.isArray(warmupUrlsB)) {
+    throw new Error("`warmupUrlsB` must be an array of strings");
+  }
 
   const urls = [url.trim()];
   if (typeof compareUrl === "string" && compareUrl.trim() !== "") {
     urls.push(compareUrl.trim());
   }
 
+  const cleanUrlList = (list: unknown): string[] =>
+    Array.isArray(list) ? list.filter((u): u is string => typeof u === "string" && u.trim() !== "") : [];
+
   const options: CheckOptions = {
     urls,
     runs: typeof runs === "number" ? Math.trunc(runs) : 1,
-    warmupUrls: Array.isArray(warmupUrls)
-      ? warmupUrls.filter((u): u is string => typeof u === "string" && u.trim() !== "")
-      : [],
+    warmupUrls: cleanUrlList(warmupUrls),
+    warmupUrlsB: urls.length === 2 ? cleanUrlList(warmupUrlsB) : [],
   };
 
   validateCheckOptions(options);

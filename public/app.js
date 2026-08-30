@@ -140,11 +140,14 @@ form.addEventListener("submit", async (event) => {
   const url = document.getElementById("url").value.trim();
   const compareUrl = document.getElementById("compareUrl").value.trim();
   const runs = Number(document.getElementById("runs").value) || 1;
-  const warmupUrls = document
-    .getElementById("warmupUrls")
-    .value.split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "");
+  const parseUrlList = (id) =>
+    document
+      .getElementById(id)
+      .value.split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+  const warmupUrls = parseUrlList("warmupUrls");
+  const warmupUrlsB = compareUrl ? parseUrlList("warmupUrlsB") : [];
 
   errorEl.classList.add("hidden");
   resultsEl.innerHTML = "";
@@ -156,7 +159,7 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch("/api/check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, compareUrl: compareUrl || undefined, runs, warmupUrls }),
+      body: JSON.stringify({ url, compareUrl: compareUrl || undefined, runs, warmupUrls, warmupUrlsB }),
     });
 
     const body = await response.json();

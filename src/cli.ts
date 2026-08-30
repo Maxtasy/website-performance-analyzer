@@ -4,7 +4,7 @@ import { runCheck, CheckResult, ProgressEvent, RunResult, MetricStats, Compariso
 
 function printUsage(): void {
   console.error(
-    "Usage: perfcheck <url> [<compareUrl>] [--runs <n>] [--json] [--warmup <url>]...\n" +
+    "Usage: perfcheck <url> [<compareUrl>] [--runs <n>] [--json] [--warmup <url>]... [--warmup-b <url>]...\n" +
       "       perfcheck serve [--port <n>]"
   );
 }
@@ -54,7 +54,8 @@ function printRunLine(prefix: string, result: RunResult): void {
 function makeProgressPrinter(runs: number): (event: ProgressEvent) => void {
   return (event) => {
     if (event.type === "warmup") {
-      console.log(`Warmup ${event.index}/${event.total}: ${event.url}`);
+      const prefix = event.label === "single" ? "Warmup" : `Warmup ${event.label}`;
+      console.log(`${prefix} ${event.index}/${event.total}: ${event.url}`);
       return;
     }
     const prefix =
@@ -123,8 +124,9 @@ async function runCli(): Promise<void> {
   let runs: number;
   let json: boolean;
   let warmupUrls: string[];
+  let warmupUrlsB: string[];
   try {
-    ({ urls, runs, json, warmupUrls } = parseArgs(process.argv.slice(2)));
+    ({ urls, runs, json, warmupUrls, warmupUrlsB } = parseArgs(process.argv.slice(2)));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`perfcheck: ${message}`);
@@ -134,7 +136,10 @@ async function runCli(): Promise<void> {
   }
 
   try {
-    const result = await runCheck({ urls, runs, warmupUrls }, json ? undefined : makeProgressPrinter(runs));
+    const result = await runCheck(
+      { urls, runs, warmupUrls, warmupUrlsB },
+      json ? undefined : makeProgressPrinter(runs)
+    );
     printResult(result, json);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
