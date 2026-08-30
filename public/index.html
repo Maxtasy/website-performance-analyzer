@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>perfcheck</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div class="max-w-3xl mx-auto px-6 py-10">
+    <h1 class="text-2xl font-semibold mb-1">perfcheck</h1>
+    <p class="text-slate-500 mb-8">Measure TTFB, Total time, FCP, and LCP for a URL — optionally compared against a second URL.</p>
+
+    <form id="check-form" class="bg-white border border-slate-200 rounded-lg p-6 space-y-4 shadow-sm">
+      <div>
+        <label for="url" class="block text-sm font-medium mb-1">URL</label>
+        <input id="url" name="url" type="text" required placeholder="https://example.com"
+          class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+      </div>
+
+      <div>
+        <label for="compareUrl" class="block text-sm font-medium mb-1">Compare URL <span class="text-slate-400 font-normal">(optional)</span></label>
+        <input id="compareUrl" name="compareUrl" type="text" placeholder="https://example.org"
+          class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+      </div>
+
+      <div>
+        <label for="warmupUrls" class="block text-sm font-medium mb-1">Warmup URLs <span class="text-slate-400 font-normal">(optional, one per line, visited in order first)</span></label>
+        <textarea id="warmupUrls" name="warmupUrls" rows="3" placeholder="https://example.myshopify.com/password?password=..."
+          class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-slate-400"></textarea>
+      </div>
+
+      <div>
+        <label for="runs" class="block text-sm font-medium mb-1">Runs</label>
+        <input id="runs" name="runs" type="number" min="1" step="1" value="1"
+          class="w-32 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+      </div>
+
+      <button id="submit-btn" type="submit"
+        class="w-full sm:w-auto bg-slate-900 text-white text-sm font-medium px-5 py-2.5 rounded-md hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed">
+        Run test
+      </button>
+    </form>
+
+    <div id="status" class="mt-6 text-sm text-slate-500 hidden"></div>
+    <div id="error" class="mt-6 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3 hidden"></div>
+    <div id="results" class="mt-8 space-y-6"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

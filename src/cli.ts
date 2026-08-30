@@ -1,20 +1,19 @@
 #!/usr/bin/env node
-import { chromium, BrowserContext } from "playwright";
-import { measure } from "./measure";
-import { measureBrowserMetrics, measureInContext } from "./browserMeasure";
 import { parseArgs } from "./args";
-import { computeStats, Stats } from "./stats";
-import { CookieJar } from "./cookieJar";
+import { runCheck, CheckResult, ProgressEvent, RunResult, MetricStats, ComparisonEntry } from "./core";
 
 function printUsage(): void {
-  console.error("Usage: perfcheck <url> [<compareUrl>] [--runs <n>] [--json] [--warmup <url>]...");
+  console.error(
+    "Usage: perfcheck <url> [<compareUrl>] [--runs <n>] [--json] [--warmup <url>]...\n" +
+      "       perfcheck serve [--port <n>]"
+  );
 }
 
 function formatMs(value: number | null): string {
   return value === null ? "n/a" : `${value.toFixed(0)}ms`;
 }
 
-function formatStatsLine(label: string, stats: Stats | null): string {
+function formatStatsLine(label: string, stats: MetricStats["ttfb"]): string {
   if (!stats) {
     return `  ${label.padEnd(6)} — n/a`;
   }
@@ -22,88 +21,6 @@ function formatStatsLine(label: string, stats: Stats | null): string {
     `  ${label.padEnd(6)} — min: ${stats.min.toFixed(0)}ms  max: ${stats.max.toFixed(0)}ms  ` +
     `mean: ${stats.mean.toFixed(0)}ms  median: ${stats.median.toFixed(0)}ms`
   );
-}
-
-interface RunResult {
-  url: string;
-  statusCode: number;
-  ttfbMs: number;
-  totalMs: number;
-  fcpMs: number | null;
-  lcpMs: number | null;
-}
-
-interface MetricStats {
-  ttfb: Stats | null;
-  total: Stats | null;
-  fcp: Stats | null;
-  lcp: Stats | null;
-}
-
-interface ComparisonEntry {
-  aMedian: number;
-  bMedian: number;
-  deltaMs: number;
-  deltaPct: number | null;
-}
-
-interface Session {
-  cookieJar: CookieJar;
-  context: BrowserContext;
-}
-
-async function runOnce(url: string, session?: Session): Promise<RunResult> {
-  const [httpResult, browserResult] = await Promise.all([
-    measure(url, session ? { cookieJar: session.cookieJar } : {}),
-    session ? measureInContext(session.context, url) : measureBrowserMetrics(url),
-  ]);
-  return {
-    url: httpResult.url,
-    statusCode: httpResult.statusCode,
-    ttfbMs: Math.round(httpResult.ttfbMs),
-    totalMs: Math.round(httpResult.totalMs),
-    fcpMs: browserResult.fcpMs !== null ? Math.round(browserResult.fcpMs) : null,
-    lcpMs: browserResult.lcpMs !== null ? Math.round(browserResult.lcpMs) : null,
-  };
-}
-
-async function runWarmup(warmupUrls: string[], session: Session, json: boolean): Promise<void> {
-  for (let i = 0; i < warmupUrls.length; i++) {
-    const warmupUrl = warmupUrls[i];
-    if (!json) {
-      console.log(`Warmup ${i + 1}/${warmupUrls.length}: ${warmupUrl}`);
-    }
-    try {
-      await measure(warmupUrl, { cookieJar: session.cookieJar });
-      const page = await session.context.newPage();
-      try {
-        await page.goto(warmupUrl, { waitUntil: "load" });
-      } finally {
-        await page.close();
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`Warmup request to ${warmupUrl} failed: ${message}`);
-    }
-  }
-}
-
-function computeMetricStats(results: RunResult[]): MetricStats {
-  return {
-    ttfb: computeStats(results.map((r) => r.ttfbMs)),
-    total: computeStats(results.map((r) => r.totalMs)),
-    fcp: computeStats(results.flatMap((r) => (r.fcpMs !== null ? [r.fcpMs] : []))),
-    lcp: computeStats(results.flatMap((r) => (r.lcpMs !== null ? [r.lcpMs] : []))),
-  };
-}
-
-function compareEntry(a: Stats | null, b: Stats | null): ComparisonEntry | null {
-  if (!a || !b) {
-    return null;
-  }
-  const deltaMs = b.median - a.median;
-  const deltaPct = a.median !== 0 ? (deltaMs / a.median) * 100 : null;
-  return { aMedian: a.median, bMedian: b.median, deltaMs, deltaPct };
 }
 
 function formatComparisonLine(label: string, entry: ComparisonEntry | null): string {
@@ -126,112 +43,82 @@ function printSummary(title: string, stats: MetricStats): void {
   console.log(formatStatsLine("LCP", stats.lcp));
 }
 
-async function runSingle(
-  url: string,
-  runs: number,
-  json: boolean,
-  session?: Session
-): Promise<void> {
-  const results: RunResult[] = [];
-
-  for (let i = 1; i <= runs; i++) {
-    const result = await runOnce(url, session);
-    results.push(result);
-
-    if (!json) {
-      const prefix = runs > 1 ? `[${i}/${runs}] ` : "";
-      console.log(
-        `${prefix}${result.url} — ${result.statusCode} — ` +
-          `TTFB: ${formatMs(result.ttfbMs)} — Total: ${formatMs(result.totalMs)} — ` +
-          `FCP: ${formatMs(result.fcpMs)} — LCP: ${formatMs(result.lcpMs)}`
-      );
-    }
-  }
-
-  const stats = computeMetricStats(results);
-
-  if (json) {
-    if (runs === 1) {
-      console.log(JSON.stringify(results[0], null, 2));
-    } else {
-      console.log(JSON.stringify({ url, runs, results, summary: stats }, null, 2));
-    }
-  } else if (runs > 1) {
-    console.log("");
-    printSummary(`Summary over ${runs} runs:`, stats);
-  }
+function printRunLine(prefix: string, result: RunResult): void {
+  console.log(
+    `${prefix}${result.url} — ${result.statusCode} — ` +
+      `TTFB: ${formatMs(result.ttfbMs)} — Total: ${formatMs(result.totalMs)} — ` +
+      `FCP: ${formatMs(result.fcpMs)} — LCP: ${formatMs(result.lcpMs)}`
+  );
 }
 
-async function runComparison(
-  urlA: string,
-  urlB: string,
-  runs: number,
-  json: boolean,
-  session?: Session
-): Promise<void> {
-  const resultsA: RunResult[] = [];
-  const resultsB: RunResult[] = [];
+function makeProgressPrinter(runs: number): (event: ProgressEvent) => void {
+  return (event) => {
+    if (event.type === "warmup") {
+      console.log(`Warmup ${event.index}/${event.total}: ${event.url}`);
+      return;
+    }
+    const prefix =
+      event.label === "single"
+        ? runs > 1
+          ? `[${event.index}/${event.total}] `
+          : ""
+        : `[${event.label} ${event.index}/${event.total}] `;
+    printRunLine(prefix, event.result);
+  };
+}
 
-  for (let i = 1; i <= runs; i++) {
-    const a = await runOnce(urlA, session);
-    resultsA.push(a);
-    if (!json) {
+function printResult(result: CheckResult, json: boolean): void {
+  if (json) {
+    if (result.mode === "single") {
+      if (result.runs === 1) {
+        console.log(JSON.stringify(result.results[0], null, 2));
+      } else {
+        console.log(
+          JSON.stringify(
+            { url: result.url, runs: result.runs, results: result.results, summary: result.summary },
+            null,
+            2
+          )
+        );
+      }
+    } else {
       console.log(
-        `[A ${i}/${runs}] ${a.url} — ${a.statusCode} — ` +
-          `TTFB: ${formatMs(a.ttfbMs)} — Total: ${formatMs(a.totalMs)} — ` +
-          `FCP: ${formatMs(a.fcpMs)} — LCP: ${formatMs(a.lcpMs)}`
+        JSON.stringify(
+          {
+            urls: result.urls,
+            runs: result.runs,
+            results: result.results,
+            summary: result.summary,
+            comparison: result.comparison,
+          },
+          null,
+          2
+        )
       );
     }
-
-    const b = await runOnce(urlB, session);
-    resultsB.push(b);
-    if (!json) {
-      console.log(
-        `[B ${i}/${runs}] ${b.url} — ${b.statusCode} — ` +
-          `TTFB: ${formatMs(b.ttfbMs)} — Total: ${formatMs(b.totalMs)} — ` +
-          `FCP: ${formatMs(b.fcpMs)} — LCP: ${formatMs(b.lcpMs)}`
-      );
-    }
+    return;
   }
 
-  const statsA = computeMetricStats(resultsA);
-  const statsB = computeMetricStats(resultsB);
-  const comparison = {
-    ttfb: compareEntry(statsA.ttfb, statsB.ttfb),
-    total: compareEntry(statsA.total, statsB.total),
-    fcp: compareEntry(statsA.fcp, statsB.fcp),
-    lcp: compareEntry(statsA.lcp, statsB.lcp),
-  };
-
-  if (json) {
-    console.log(
-      JSON.stringify(
-        {
-          urls: [urlA, urlB],
-          runs,
-          results: { a: resultsA, b: resultsB },
-          summary: { a: statsA, b: statsB },
-          comparison,
-        },
-        null,
-        2
-      )
-    );
+  if (result.mode === "single") {
+    if (result.runs > 1) {
+      console.log("");
+      printSummary(`Summary over ${result.runs} runs:`, result.summary);
+    }
   } else {
     console.log("");
-    printSummary(`Summary over ${runs} runs — A: ${urlA}`, statsA);
+    printSummary(`Summary over ${result.runs} runs — A: ${result.urls[0]}`, result.summary.a);
     console.log("");
-    printSummary(`Summary over ${runs} runs — B: ${urlB}`, statsB);
+    printSummary(`Summary over ${result.runs} runs — B: ${result.urls[1]}`, result.summary.b);
     console.log("");
     console.log("Comparison (B vs A, median):");
-    console.log(formatComparisonLine("TTFB", comparison.ttfb));
-    console.log(formatComparisonLine("Total", comparison.total));
-    console.log(formatComparisonLine("FCP", comparison.fcp));
-    console.log(formatComparisonLine("LCP", comparison.lcp));
+    console.log(formatComparisonLine("TTFB", result.comparison.ttfb));
+    console.log(formatComparisonLine("Total", result.comparison.total));
+    console.log(formatComparisonLine("FCP", result.comparison.fcp));
+    console.log(formatComparisonLine("LCP", result.comparison.lcp));
   }
 }
 
-async function main(): Promise<void> {
+async function runCli(): Promise<void> {
   let urls: string[];
   let runs: number;
   let json: boolean;
@@ -246,32 +133,23 @@ async function main(): Promise<void> {
     return;
   }
 
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
-
   try {
-    let session: Session | undefined;
-
-    if (warmupUrls.length > 0) {
-      browser = await chromium.launch();
-      const context = await browser.newContext();
-      session = { cookieJar: new CookieJar(), context };
-      await runWarmup(warmupUrls, session, json);
-    }
-
-    if (urls.length === 1) {
-      await runSingle(urls[0], runs, json, session);
-    } else {
-      await runComparison(urls[0], urls[1], runs, json, session);
-    }
+    const result = await runCheck({ urls, runs, warmupUrls }, json ? undefined : makeProgressPrinter(runs));
+    printResult(result, json);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`perfcheck: ${message}`);
     process.exitCode = 1;
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
   }
+}
+
+async function main(): Promise<void> {
+  if (process.argv[2] === "serve") {
+    const { startServer } = await import("./server");
+    await startServer(process.argv.slice(3));
+    return;
+  }
+  await runCli();
 }
 
 main();

@@ -1,6 +1,6 @@
 # perfcheck
 
-A CLI tool that measures basic web performance metrics for a given URL, with support for repeated runs and A/B comparison between two URLs.
+A CLI tool that measures basic web performance metrics for a given URL, with support for repeated runs, A/B comparison between two URLs, and an optional local web UI (`perfcheck serve`).
 
 ## Metrics
 
@@ -210,6 +210,28 @@ Cookies are tracked separately for the raw HTTP requests (TTFB/Total) and for th
 - `--runs <n>` — repeat the measurement `n` times (or `n` interleaved rounds in comparison mode) and summarize with min/max/mean/median
 - `--json` — print a single machine-readable JSON document to stdout instead of text
 - `--warmup <url>` — visit a URL first to establish session cookies (repeatable, runs in order, not measured)
+
+## Web UI
+
+`perfcheck serve` starts a local server with a browser-based form for the same functionality — URL, compare URL, warmup URLs (one per line), and run count — instead of the command line:
+
+```bash
+perfcheck serve
+```
+
+```
+perfcheck server running at http://localhost:4321
+```
+
+Open that URL in a browser, fill in the form, and click "Run test". The page waits for the whole test to finish (no live per-run progress yet) and then renders per-run tables, summary stats, and — if a compare URL was given — the comparison table, using the same numbers the CLI would print.
+
+Override the port with `--port`:
+
+```bash
+perfcheck serve --port 8080
+```
+
+The server binds to `127.0.0.1` only (not your network), same trust boundary as running the CLI directly.
 
 ## Development
 
