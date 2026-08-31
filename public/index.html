@@ -18,21 +18,55 @@
           class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
       </div>
 
+      <div class="border border-slate-200 rounded-md p-3 space-y-3">
+        <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Shopify preview login — A <span class="normal-case font-normal text-slate-400">(optional)</span></p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="shopifyPasswordA" class="block text-sm font-medium mb-1">Store password</label>
+            <input id="shopifyPasswordA" name="shopifyPasswordA" type="password" autocomplete="off" placeholder="••••••••"
+              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+          </div>
+          <div>
+            <label for="shopifyThemeIdA" class="block text-sm font-medium mb-1">Preview theme ID</label>
+            <input id="shopifyThemeIdA" name="shopifyThemeIdA" type="text" placeholder="12kjh123hj2131"
+              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+          </div>
+        </div>
+        <p class="text-xs text-slate-400">When both are set, perfcheck logs into the password gate and selects this preview theme before testing.</p>
+      </div>
+
       <div>
         <label for="compareUrl" class="block text-sm font-medium mb-1">Compare URL <span class="text-slate-400 font-normal">(optional)</span></label>
         <input id="compareUrl" name="compareUrl" type="text" placeholder="https://example.org"
           class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
       </div>
 
+      <div class="border border-slate-200 rounded-md p-3 space-y-3">
+        <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Shopify preview login — B <span class="normal-case font-normal text-slate-400">(optional, requires a Compare URL)</span></p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="shopifyPasswordB" class="block text-sm font-medium mb-1">Store password</label>
+            <input id="shopifyPasswordB" name="shopifyPasswordB" type="password" autocomplete="off" placeholder="••••••••"
+              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+          </div>
+          <div>
+            <label for="shopifyThemeIdB" class="block text-sm font-medium mb-1">Preview theme ID</label>
+            <input id="shopifyThemeIdB" name="shopifyThemeIdB" type="text" placeholder="98zxy987zxy0"
+              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+          </div>
+        </div>
+        <p class="text-xs text-slate-400">Independent session from side A — useful for comparing two different preview themes on the same store.</p>
+      </div>
+
       <div>
-        <label for="warmupUrls" class="block text-sm font-medium mb-1">Warmup URLs — A <span class="text-slate-400 font-normal">(optional, one per line, visited in order first)</span></label>
-        <textarea id="warmupUrls" name="warmupUrls" rows="3" placeholder="https://example.myshopify.com/password?password=..."
+        <label for="warmupUrls" class="block text-sm font-medium mb-1">Warmup URLs — A <span class="text-slate-400 font-normal">(optional, one per line, run after the Shopify login above if set)</span></label>
+        <textarea id="warmupUrls" name="warmupUrls" rows="3" placeholder="https://example.com/some-extra-warmup-step"
           class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-slate-400"></textarea>
       </div>
 
       <div>
         <label for="warmupUrlsB" class="block text-sm font-medium mb-1">Warmup URLs — B <span class="text-slate-400 font-normal">(optional, only used with a Compare URL — each side gets its own session)</span></label>
-        <textarea id="warmupUrlsB" name="warmupUrlsB" rows="3" placeholder="https://example.myshopify.com/password?password=..."
+        <textarea id="warmupUrlsB" name="warmupUrlsB" rows="3" placeholder="https://example.com/some-extra-warmup-step"
           class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-slate-400"></textarea>
       </div>
 

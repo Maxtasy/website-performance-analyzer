@@ -5,6 +5,8 @@ import { runCheck, CheckResult, ProgressEvent, RunResult, MetricStats, Compariso
 function printUsage(): void {
   console.error(
     "Usage: perfcheck <url> [<compareUrl>] [--runs <n>] [--json] [--warmup <url>]... [--warmup-b <url>]...\n" +
+      "                      [--shopify-password <pw> --shopify-theme-id <id>]\n" +
+      "                      [--shopify-password-b <pw> --shopify-theme-id-b <id>]\n" +
       "       perfcheck serve [--port <n>]"
   );
 }
@@ -56,6 +58,12 @@ function makeProgressPrinter(runs: number): (event: ProgressEvent) => void {
     if (event.type === "warmup") {
       const prefix = event.label === "single" ? "Warmup" : `Warmup ${event.label}`;
       console.log(`${prefix} ${event.index}/${event.total}: ${event.url}`);
+      return;
+    }
+    if (event.type === "shopify-step") {
+      const prefix = event.label === "single" ? "Shopify" : `Shopify ${event.label}`;
+      const step = event.step === "password" ? "login" : "preview theme";
+      console.log(`${prefix} ${step}: ${event.url}`);
       return;
     }
     const prefix =
@@ -123,10 +131,10 @@ async function runCli(): Promise<void> {
   let urls: string[];
   let runs: number;
   let json: boolean;
-  let warmupUrls: string[];
-  let warmupUrlsB: string[];
+  let parsed: ReturnType<typeof parseArgs>;
   try {
-    ({ urls, runs, json, warmupUrls, warmupUrlsB } = parseArgs(process.argv.slice(2)));
+    parsed = parseArgs(process.argv.slice(2));
+    ({ urls, runs, json } = parsed);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`perfcheck: ${message}`);
@@ -137,7 +145,14 @@ async function runCli(): Promise<void> {
 
   try {
     const result = await runCheck(
-      { urls, runs, warmupUrls, warmupUrlsB },
+      {
+        urls,
+        runs,
+        warmupUrls: parsed.warmupUrls,
+        warmupUrlsB: parsed.warmupUrlsB,
+        shopifyPreviewA: parsed.shopifyPreviewA,
+        shopifyPreviewB: parsed.shopifyPreviewB,
+      },
       json ? undefined : makeProgressPrinter(runs)
     );
     printResult(result, json);

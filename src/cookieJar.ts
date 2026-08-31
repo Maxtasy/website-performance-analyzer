@@ -1,6 +1,12 @@
 export class CookieJar {
   private cookies = new Map<string, string>();
 
+  set(name: string, value: string): void {
+    if (name) {
+      this.cookies.set(name, value);
+    }
+  }
+
   applySetCookie(headers: string[] | undefined): void {
     if (!headers) {
       return;
@@ -13,9 +19,7 @@ export class CookieJar {
       }
       const name = pair.slice(0, eq).trim();
       const value = pair.slice(eq + 1).trim();
-      if (name) {
-        this.cookies.set(name, value);
-      }
+      this.set(name, value);
     }
   }
 

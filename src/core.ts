@@ -34,6 +34,11 @@ export interface ComparisonStats {
   lcp: ComparisonEntry | null;
 }
 
+export interface ShopifyPreviewConfig {
+  password: string;
+  previewThemeId: string;
+}
+
 export interface CheckOptions {
   urls: string[];
   runs: number;
@@ -41,6 +46,10 @@ export interface CheckOptions {
   warmupUrls: string[];
   /** Warmup URLs for urls[1] (side B). Only meaningful in comparison mode. */
   warmupUrlsB?: string[];
+  /** Shopify password + preview theme login for urls[0], run before warmupUrls. */
+  shopifyPreviewA?: ShopifyPreviewConfig;
+  /** Shopify password + preview theme login for urls[1], run before warmupUrlsB. */
+  shopifyPreviewB?: ShopifyPreviewConfig;
 }
 
 export interface SingleCheckResult {
@@ -64,11 +73,72 @@ export type CheckResult = SingleCheckResult | ComparisonCheckResult;
 
 export type ProgressEvent =
   | { type: "warmup"; label: "single" | "A" | "B"; index: number; total: number; url: string }
+  | {
+      type: "shopify-step";
+      label: "single" | "A" | "B";
+      step: "password" | "preview-theme";
+      url: string;
+    }
   | { type: "run"; label: "single" | "A" | "B"; index: number; total: number; result: RunResult };
 
 interface Session {
   cookieJar: CookieJar;
   context: BrowserContext;
+}
+
+const SHOPIFY_LOGIN_TIMEOUT_MS = 15_000;
+
+async function runShopifyLogin(
+  targetUrl: string,
+  config: ShopifyPreviewConfig,
+  session: Session,
+  label: "single" | "A" | "B",
+  onProgress?: (event: ProgressEvent) => void
+): Promise<void> {
+  const origin = new URL(targetUrl).origin;
+  const passwordUrl = `${origin}/password`;
+  const previewUrl = `${origin}/?preview_theme_id=${encodeURIComponent(config.previewThemeId)}&pb=0`;
+
+  const page = await session.context.newPage();
+  try {
+    onProgress?.({ type: "shopify-step", label, step: "password", url: passwordUrl });
+    await page.goto(passwordUrl, { waitUntil: "load", timeout: SHOPIFY_LOGIN_TIMEOUT_MS });
+
+    const passwordInput = page.locator('input[type="password"]').first();
+    try {
+      await passwordInput.waitFor({ state: "visible", timeout: SHOPIFY_LOGIN_TIMEOUT_MS });
+    } catch {
+      throw new Error(
+        `Could not find a password field on ${passwordUrl} — the store's password page may not match what perfcheck expects`
+      );
+    }
+    await passwordInput.fill(config.password);
+    try {
+      await Promise.all([
+        page.waitForURL((url) => !url.pathname.includes("/password"), {
+          timeout: SHOPIFY_LOGIN_TIMEOUT_MS,
+        }),
+        passwordInput.press("Enter"),
+      ]);
+    } catch {
+      throw new Error(
+        `Still on the password page after submitting — check that the store password is correct`
+      );
+    }
+
+    onProgress?.({ type: "shopify-step", label, step: "preview-theme", url: previewUrl });
+    await page.goto(previewUrl, { waitUntil: "load", timeout: SHOPIFY_LOGIN_TIMEOUT_MS });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Shopify preview login for ${origin} failed: ${message}`);
+  } finally {
+    await page.close();
+  }
+
+  const cookies = await session.context.cookies();
+  for (const cookie of cookies) {
+    session.cookieJar.set(cookie.name, cookie.value);
+  }
 }
 
 async function runOnce(url: string, session?: Session): Promise<RunResult> {
@@ -112,16 +182,21 @@ async function runWarmup(
 
 async function buildSession(
   browserPromise: () => Promise<Awaited<ReturnType<typeof chromium.launch>>>,
+  targetUrl: string,
   warmupUrls: string[],
+  shopifyPreview: ShopifyPreviewConfig | undefined,
   label: "single" | "A" | "B",
   onProgress?: (event: ProgressEvent) => void
 ): Promise<Session | undefined> {
-  if (warmupUrls.length === 0) {
+  if (warmupUrls.length === 0 && !shopifyPreview) {
     return undefined;
   }
   const browser = await browserPromise();
   const context = await browser.newContext();
   const session: Session = { cookieJar: new CookieJar(), context };
+  if (shopifyPreview) {
+    await runShopifyLogin(targetUrl, shopifyPreview, session, label, onProgress);
+  }
   await runWarmup(warmupUrls, session, label, onProgress);
   return session;
 }
@@ -157,6 +232,17 @@ export function validateCheckOptions(options: CheckOptions): void {
   if ((options.warmupUrlsB?.length ?? 0) > 0 && options.urls.length !== 2) {
     throw new Error("warmupUrlsB (--warmup-b) requires two URLs to compare");
   }
+  if (options.shopifyPreviewB && options.urls.length !== 2) {
+    throw new Error("Shopify preview login for side B requires two URLs to compare");
+  }
+  for (const [config, side] of [
+    [options.shopifyPreviewA, "A"],
+    [options.shopifyPreviewB, "B"],
+  ] as const) {
+    if (config && (!config.password || !config.previewThemeId)) {
+      throw new Error(`Shopify preview login for side ${side} requires both a password and a preview theme ID`);
+    }
+  }
 }
 
 export async function runCheck(
@@ -164,7 +250,7 @@ export async function runCheck(
   onProgress?: (event: ProgressEvent) => void
 ): Promise<CheckResult> {
   validateCheckOptions(options);
-  const { urls, runs, warmupUrls, warmupUrlsB = [] } = options;
+  const { urls, runs, warmupUrls, warmupUrlsB = [], shopifyPreviewA, shopifyPreviewB } = options;
 
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   const getBrowser = async () => {
@@ -177,7 +263,14 @@ export async function runCheck(
   try {
     if (urls.length === 1) {
       const url = urls[0];
-      const session = await buildSession(getBrowser, warmupUrls, "single", onProgress);
+      const session = await buildSession(
+        getBrowser,
+        url,
+        warmupUrls,
+        shopifyPreviewA,
+        "single",
+        onProgress
+      );
       const results: RunResult[] = [];
 
       for (let i = 1; i <= runs; i++) {
@@ -190,8 +283,22 @@ export async function runCheck(
     }
 
     const [urlA, urlB] = urls;
-    const sessionA = await buildSession(getBrowser, warmupUrls, "A", onProgress);
-    const sessionB = await buildSession(getBrowser, warmupUrlsB, "B", onProgress);
+    const sessionA = await buildSession(
+      getBrowser,
+      urlA,
+      warmupUrls,
+      shopifyPreviewA,
+      "A",
+      onProgress
+    );
+    const sessionB = await buildSession(
+      getBrowser,
+      urlB,
+      warmupUrlsB,
+      shopifyPreviewB,
+      "B",
+      onProgress
+    );
 
     const resultsA: RunResult[] = [];
     const resultsB: RunResult[] = [];

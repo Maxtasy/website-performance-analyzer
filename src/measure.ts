@@ -12,6 +12,16 @@ export interface MeasureResult {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+// A raw Node http(s) request otherwise sends almost no headers, which many
+// sites' bot/WAF protection (Shopify included) blocks outright — even with
+// a valid session cookie. These make the request look like a real browser.
+const BROWSER_LIKE_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
 export function measure(
   rawUrl: string,
   options: { timeoutMs?: number; cookieJar?: CookieJar } = {}
@@ -39,7 +49,7 @@ export function measure(
 
     const req = client.get(
       url,
-      { headers: cookieHeader ? { Cookie: cookieHeader } : {} },
+      { headers: { ...BROWSER_LIKE_HEADERS, ...(cookieHeader ? { Cookie: cookieHeader } : {}) } },
       (res) => {
         const ttfbMs = performance.now() - start;
         const statusCode = res.statusCode ?? 0;

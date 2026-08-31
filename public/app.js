@@ -148,6 +148,10 @@ form.addEventListener("submit", async (event) => {
       .filter((line) => line !== "");
   const warmupUrls = parseUrlList("warmupUrls");
   const warmupUrlsB = compareUrl ? parseUrlList("warmupUrlsB") : [];
+  const shopifyPasswordA = document.getElementById("shopifyPasswordA").value.trim();
+  const shopifyThemeIdA = document.getElementById("shopifyThemeIdA").value.trim();
+  const shopifyPasswordB = compareUrl ? document.getElementById("shopifyPasswordB").value.trim() : "";
+  const shopifyThemeIdB = compareUrl ? document.getElementById("shopifyThemeIdB").value.trim() : "";
 
   errorEl.classList.add("hidden");
   resultsEl.innerHTML = "";
@@ -159,7 +163,17 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch("/api/check", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, compareUrl: compareUrl || undefined, runs, warmupUrls, warmupUrlsB }),
+      body: JSON.stringify({
+        url,
+        compareUrl: compareUrl || undefined,
+        runs,
+        warmupUrls,
+        warmupUrlsB,
+        shopifyPasswordA: shopifyPasswordA || undefined,
+        shopifyThemeIdA: shopifyThemeIdA || undefined,
+        shopifyPasswordB: shopifyPasswordB || undefined,
+        shopifyThemeIdB: shopifyThemeIdB || undefined,
+      }),
     });
 
     const body = await response.json();

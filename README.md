@@ -195,27 +195,37 @@ https://httpbin.org/cookies — 200 — TTFB: 108ms — Total: 109ms — FCP: 12
 
 Warmup lines are suppressed when `--json` is set, so stdout still carries exactly one JSON document.
 
-**Example: unlocking a password-protected Shopify preview theme.** Shopify's storefront password gate and theme preview selection both work via cookies, so visiting them in order before the real test gives you a session that can see the gated, previewed page:
+`--warmup-b` requires two URLs (it errors if used with only one). If only one side needs warmup, just omit the other flag — that side runs stateless as usual.
+
+### Shopify password-protected preview themes (`--shopify-password` / `--shopify-theme-id`)
+
+Shopify dev stores gate the storefront behind a password, and previewing an unpublished theme requires a `?preview_theme_id=...&pb=0` navigation on top of that. Both are driven through cookies. Rather than hand-crafting the login request (Shopify has changed how the password gate works before, and a `?password=...` query-string trick can silently stop working), perfcheck drives this through an actual headless-browser page load: it navigates to `{origin}/password`, fills in the real password field, submits the real form, then navigates to `{origin}/?preview_theme_id=<ID>&pb=0`. The cookies that result (both the auth cookie and the theme-preview cookie) are then copied into the HTTP-side cookie jar too, so TTFB/Total measurements are authenticated exactly like the browser-based FCP/LCP ones — no separate raw-HTTP login implementation to keep in sync.
 
 ```bash
 perfcheck https://example.myshopify.com \
-  --warmup "https://example.myshopify.com/password?password=actual_password" \
-  --warmup "https://example.myshopify.com/?preview_theme_id=12kjh123hj2131&pb=0"
+  --shopify-password "actual_password" \
+  --shopify-theme-id "12kjh123hj2131"
 ```
 
-Cookies are tracked separately for the raw HTTP requests (TTFB/Total) and for the headless browser (FCP/LCP) — each gets its own warmup pass so both paths see the authenticated, previewed page.
+```
+Shopify login: https://example.myshopify.com/password
+Shopify preview theme: https://example.myshopify.com/?preview_theme_id=12kjh123hj2131&pb=0
+https://example.myshopify.com/ — 200 — TTFB: 94ms — Total: 261ms — FCP: 340ms — LCP: 340ms
+```
 
-**Comparison mode: independent warmup per side.** `--warmup` only warms up the first URL (A). If you're comparing two different preview themes (or two different password-protected stores), B needs its own cookies — use `--warmup-b`, repeatable the same way. A and B each get their own cookie jar and browser session, so nothing leaks between them:
+Both flags are required together (`--shopify-theme-id` without `--shopify-password`, or vice versa, is an error). This runs *before* any `--warmup` URLs for that side, so you can still add extra custom warmup steps afterward if needed.
+
+In comparison mode, use `--shopify-password-b` / `--shopify-theme-id-b` for side B — useful for comparing two different preview themes on the same store, or two different password-protected stores. Each side gets its own independent login/session, exactly like `--warmup` vs `--warmup-b`:
 
 ```bash
 perfcheck https://example.myshopify.com https://example.myshopify.com \
-  --warmup "https://example.myshopify.com/password?password=actual_password" \
-  --warmup "https://example.myshopify.com/?preview_theme_id=THEME_A&pb=0" \
-  --warmup-b "https://example.myshopify.com/password?password=actual_password" \
-  --warmup-b "https://example.myshopify.com/?preview_theme_id=THEME_B&pb=0"
+  --shopify-password "actual_password" --shopify-theme-id "THEME_A" \
+  --shopify-password-b "actual_password" --shopify-theme-id-b "THEME_B"
 ```
 
-`--warmup-b` requires two URLs (it errors if used with only one). If only one side needs warmup, just omit the other flag — that side runs stateless as usual.
+The `-b` flags require two URLs, same as `--warmup-b`.
+
+Also available in the web UI ([see below](#web-ui)) as "Shopify preview login" fields for A and B, with the password entered into a masked input.
 
 ## Flags
 
@@ -223,10 +233,12 @@ perfcheck https://example.myshopify.com https://example.myshopify.com \
 - `--json` — print a single machine-readable JSON document to stdout instead of text
 - `--warmup <url>` — visit a URL first to establish session cookies for the single URL (or side A in comparison mode); repeatable, runs in order, not measured
 - `--warmup-b <url>` — same, but for side B in comparison mode (requires two URLs; independent session from `--warmup`)
+- `--shopify-password <pw>` / `--shopify-theme-id <id>` — log into a Shopify password gate and select a preview theme before testing the single URL (or side A); both required together
+- `--shopify-password-b <pw>` / `--shopify-theme-id-b <id>` — same, for side B (requires two URLs)
 
 ## Web UI
 
-`perfcheck serve` starts a local server with a browser-based form for the same functionality — URL, compare URL, independent warmup URLs for A and B (one per line each), and run count — instead of the command line:
+`perfcheck serve` starts a local server with a browser-based form for the same functionality — URL, compare URL, Shopify preview login (store password + preview theme ID) for A and B, independent warmup URLs for A and B (one per line each), and run count — instead of the command line:
 
 ```bash
 perfcheck serve
