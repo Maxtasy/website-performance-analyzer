@@ -134,6 +134,54 @@ function renderResult(result) {
   );
 }
 
+function describeProgress(progressEvent) {
+  const who = progressEvent.label !== "single" ? ` ${progressEvent.label}` : "";
+  if (progressEvent.type === "warmup") {
+    return `Warming up${who} (${progressEvent.index}/${progressEvent.total})…`;
+  }
+  if (progressEvent.type === "shopify-step") {
+    return progressEvent.step === "password"
+      ? `Logging into Shopify${who}…`
+      : `Selecting preview theme${who}…`;
+  }
+  return `Measuring${who} — run ${progressEvent.index}/${progressEvent.total}…`;
+}
+
+async function readCheckStream(response, onProgress) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result = null;
+  let streamError = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const rawMessage = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      if (!rawMessage.startsWith("data: ")) continue;
+
+      const payload = JSON.parse(rawMessage.slice(6));
+      if (payload.type === "progress") {
+        onProgress(payload.event);
+      } else if (payload.type === "result") {
+        result = payload.result;
+      } else if (payload.type === "error") {
+        streamError = payload.error;
+      }
+    }
+  }
+
+  if (streamError) {
+    throw new Error(streamError);
+  }
+  return result;
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -155,7 +203,7 @@ form.addEventListener("submit", async (event) => {
 
   errorEl.classList.add("hidden");
   resultsEl.innerHTML = "";
-  statusEl.textContent = "Running… this can take a while for multiple runs.";
+  statusEl.textContent = "Starting…";
   statusEl.classList.remove("hidden");
   submitBtn.disabled = true;
 
@@ -176,13 +224,16 @@ form.addEventListener("submit", async (event) => {
       }),
     });
 
-    const body = await response.json();
-
     if (!response.ok) {
+      const body = await response.json();
       throw new Error(body.error || `Request failed with status ${response.status}`);
     }
 
-    resultsEl.innerHTML = renderResult(body);
+    const result = await readCheckStream(response, (progressEvent) => {
+      statusEl.textContent = describeProgress(progressEvent);
+    });
+
+    resultsEl.innerHTML = renderResult(result);
   } catch (err) {
     errorEl.textContent = err instanceof Error ? err.message : String(err);
     errorEl.classList.remove("hidden");

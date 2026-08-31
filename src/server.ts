@@ -105,12 +105,24 @@ export async function startServer(argv: string[]): Promise<void> {
       return;
     }
 
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    const sendEvent = (payload: unknown): void => {
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
     try {
-      const result = await runCheck(options);
-      res.json(result);
+      const result = await runCheck(options, (event) => sendEvent({ type: "progress", event }));
+      sendEvent({ type: "result", result });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      res.status(502).json({ error: message });
+      sendEvent({ type: "error", error: message });
+    } finally {
+      res.end();
     }
   });
 

@@ -248,7 +248,7 @@ perfcheck serve
 perfcheck server running at http://localhost:4321
 ```
 
-Open that URL in a browser, fill in the form, and click "Run test". The page waits for the whole test to finish (no live per-run progress yet) and then renders per-run tables, summary stats, and — if a compare URL was given — the comparison table, using the same numbers the CLI would print.
+Open that URL in a browser, fill in the form, and click "Run test". The status line updates live as the test progresses (e.g. "Logging into Shopify…", "Warming up (1/2)…", "Measuring B — run 3/5…") via a streamed response, then renders per-run tables, summary stats, and — if a compare URL was given — the comparison table, using the same numbers the CLI would print.
 
 Override the port with `--port`:
 
